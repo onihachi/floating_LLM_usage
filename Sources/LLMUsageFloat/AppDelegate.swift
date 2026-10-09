@@ -20,7 +20,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let rootView = UsageView(store: store, settings: settings, onQuit: {
             NSApp.terminate(nil)
         })
-        let panel = FloatingPanel(rootView: rootView)
+        let panel = FloatingPanel(rootView: rootView, mode: settings.windowMode)
         panel.alphaValue = settings.opacity
         panel.orderFrontRegardless()
         self.panel = panel
@@ -69,6 +69,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             .sink { [weak self] interval in
                 Task { @MainActor in
                     self?.scheduleTimer(interval: interval)
+                }
+            }
+            .store(in: &cancellables)
+
+        settings.$windowMode
+            .removeDuplicates()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] mode in
+                Task { @MainActor in
+                    guard let panel = self?.panel else { return }
+                    panel.apply(mode: mode)
+                    // Leaving desktop mode: surface the panel so the change is visible.
+                    if mode != .desktop, panel.isVisible {
+                        panel.orderFrontRegardless()
+                    }
                 }
             }
             .store(in: &cancellables)
@@ -158,6 +173,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         intervalItem.submenu = intervalMenu
         menu.addItem(intervalItem)
 
+        let modeMenu = NSMenu()
+        for mode in WindowMode.allCases {
+            let item = makeItem(mode.label, action: #selector(setWindowMode(_:)))
+            item.representedObject = mode.rawValue
+            item.state = settings.windowMode == mode ? .on : .off
+            modeMenu.addItem(item)
+        }
+        let modeItem = NSMenuItem(title: "表示モード", action: nil, keyEquivalent: "")
+        modeItem.submenu = modeMenu
+        menu.addItem(modeItem)
+
+        let cornerMenu = NSMenu()
+        for corner in PanelCorner.allCases {
+            let item = makeItem(corner.label, action: #selector(snapToCorner(_:)))
+            item.representedObject = corner.rawValue
+            cornerMenu.addItem(item)
+        }
+        let cornerItem = NSMenuItem(title: "位置", action: nil, keyEquivalent: "")
+        cornerItem.submenu = cornerMenu
+        menu.addItem(cornerItem)
+
         menu.addItem(.separator())
 
         let claudeItem = makeItem("Claude Code を表示", action: #selector(toggleClaude))
@@ -190,7 +226,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func refreshNow() {
-        store.refreshAll()
+        store.refreshAll(force: true)
     }
 
     @objc private func setOpacity(_ sender: NSMenuItem) {
@@ -202,6 +238,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func setInterval(_ sender: NSMenuItem) {
         if let value = sender.representedObject as? Double {
             settings.refreshInterval = value
+        }
+    }
+
+    @objc private func snapToCorner(_ sender: NSMenuItem) {
+        if let raw = sender.representedObject as? String, let corner = PanelCorner(rawValue: raw) {
+            panel?.snap(to: corner)
+            panel?.orderFrontRegardless()
+        }
+    }
+
+    @objc private func setWindowMode(_ sender: NSMenuItem) {
+        if let raw = sender.representedObject as? String, let mode = WindowMode(rawValue: raw) {
+            settings.windowMode = mode
         }
     }
 

@@ -7,6 +7,7 @@ struct UsageView: View {
     @ObservedObject var settings: Settings
     var onQuit: () -> Void
 
+    @GestureState private var dragActive = false
     private let cornerRadius: CGFloat = 14
 
     var body: some View {
@@ -18,7 +19,8 @@ struct UsageView: View {
                         title: "Claude Code",
                         status: store.claude,
                         accent: Color(red: 0.85, green: 0.47, blue: 0.34),
-                        now: context.date
+                        now: context.date,
+                        settings: settings
                     )
                 }
                 if settings.showClaude && settings.showCodex {
@@ -29,7 +31,8 @@ struct UsageView: View {
                         title: "Codex",
                         status: store.codex,
                         accent: Color(red: 0.25, green: 0.78, blue: 0.60),
-                        now: context.date
+                        now: context.date,
+                        settings: settings
                     )
                 }
                 if !settings.showClaude && !settings.showCodex {
@@ -41,6 +44,22 @@ struct UsageView: View {
             }
             .padding(14)
             .frame(width: 300, alignment: .leading)
+            .contentShape(Rectangle())
+            // Drag anywhere that is not a button to move the panel. Child controls
+            // (buttons, the gear menu) keep precedence over this container gesture.
+            .gesture(
+                DragGesture(minimumDistance: 3, coordinateSpace: .global)
+                    // GestureState resets when the gesture is cancelled, so a new
+                    // drag always re-captures its starting point.
+                    .updating($dragActive) { value, active, _ in
+                        if !active {
+                            active = true
+                            FloatingPanel.current?.beginDrag(translationSoFar: value.translation)
+                        }
+                    }
+                    .onChanged { _ in FloatingPanel.current?.continueDrag() }
+                    .onEnded { _ in FloatingPanel.current?.endDrag() }
+            )
         }
         .background(VisualEffectBackground())
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
@@ -55,7 +74,7 @@ struct UsageView: View {
 
     private func footer(now: Date) -> some View {
         HStack(spacing: 8) {
-            Button(action: { store.refreshAll() }) {
+            Button(action: { store.refreshAll(force: true) }) {
                 Image(systemName: "arrow.clockwise")
                     .font(.system(size: 11, weight: .medium))
             }
@@ -92,7 +111,7 @@ struct UsageView: View {
 
     @ViewBuilder
     private var menuItems: some View {
-        Button("今すぐ更新") { store.refreshAll() }
+        Button("今すぐ更新") { store.refreshAll(force: true) }
 
         Menu("不透明度") {
             ForEach(Settings.opacityOptions, id: \.self) { value in
@@ -118,6 +137,24 @@ struct UsageView: View {
             }
         }
 
+        Menu("表示モード") {
+            ForEach(WindowMode.allCases, id: \.self) { mode in
+                Button(action: { settings.windowMode = mode }) {
+                    if settings.windowMode == mode {
+                        Label(mode.label, systemImage: "checkmark")
+                    } else {
+                        Text(mode.label)
+                    }
+                }
+            }
+        }
+
+        Menu("位置") {
+            ForEach(PanelCorner.allCases, id: \.self) { corner in
+                Button(corner.label) { FloatingPanel.current?.snap(to: corner) }
+            }
+        }
+
         Divider()
 
         Toggle("Claude Code を表示", isOn: $settings.showClaude)
@@ -136,6 +173,7 @@ struct ProviderSection: View {
     let status: ProviderStatus
     let accent: Color
     let now: Date
+    @ObservedObject var settings: Settings
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
@@ -167,7 +205,12 @@ struct ProviderSection: View {
             }
 
             ForEach(status.windows) { window in
-                UsageRow(window: window, now: now)
+                UsageRow(
+                    window: window,
+                    now: now,
+                    collapsed: !settings.expandedWindows.contains(window.id),
+                    onToggle: { settings.toggleExpanded(window.id) }
+                )
             }
 
             if let error = status.errorMessage {
@@ -190,6 +233,9 @@ struct ProviderSection: View {
 struct UsageRow: View {
     let window: UsageWindow
     let now: Date
+    /// Collapsed rows show one line (label, percent, time left) and no bar.
+    var collapsed: Bool = false
+    var onToggle: () -> Void = {}
 
     private var percent: Double { window.clampedPercent }
 
@@ -200,6 +246,50 @@ struct UsageRow: View {
     }
 
     var body: some View {
+        Group {
+            if collapsed {
+                collapsedBody
+            } else {
+                expandedBody
+            }
+        }
+        .contentShape(Rectangle())
+        // A plain click toggles; drags still go to the panel-move gesture.
+        .onTapGesture { onToggle() }
+    }
+
+    /// Width of the compact bar; small enough to leave room for the label,
+    /// the percentage and the time-left text on one 300pt-wide line.
+    private let compactBarWidth: CGFloat = 56
+
+    private var collapsedBody: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "chevron.right")
+                .font(.system(size: 8, weight: .semibold))
+                .foregroundStyle(.tertiary)
+            Text(window.label)
+                .font(.system(size: 11))
+            ZStack(alignment: .leading) {
+                Capsule()
+                    .fill(Color.primary.opacity(0.12))
+                Capsule()
+                    .fill(barColor)
+                    .frame(width: max(0, compactBarWidth * percent / 100))
+            }
+            .frame(width: compactBarWidth, height: 5)
+            Text("\(Int(percent.rounded()))%")
+                .font(.system(size: 11, weight: .medium, design: .rounded))
+                .monospacedDigit()
+            Spacer()
+            if let reset = window.resetsAt {
+                Text(Format.remaining(until: reset, from: now))
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var expandedBody: some View {
         VStack(alignment: .leading, spacing: 3) {
             HStack {
                 Text(window.label)

@@ -7,13 +7,15 @@ final class UsageStore: ObservableObject {
     @Published var claude = ProviderStatus()
     @Published var codex = ProviderStatus()
 
-    func refreshAll() {
-        refreshClaude()
+    /// - Parameter force: user-initiated refresh; bypasses the Claude
+    ///   credential-lookup backoff so a fresh login is picked up immediately.
+    func refreshAll(force: Bool = false) {
+        refreshClaude(force: force)
         refreshCodex()
     }
 
-    func refreshClaude() {
-        refresh(\.claude) { try await ClaudeProvider.fetch() }
+    func refreshClaude(force: Bool = false) {
+        refresh(\.claude) { try await ClaudeProvider.fetch(force: force) }
     }
 
     func refreshCodex() {

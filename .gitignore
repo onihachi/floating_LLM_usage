@@ -4,3 +4,7 @@ build/
 *.xcodeproj
 *.xcworkspace
 .DS_Store
+
+# Local dev notes and per-machine Claude Code settings
+HANDOFF.md
+.claude/

@@ -29,21 +29,7 @@ enum CodexProvider {
 
     static func fetchFromAPI() async throws -> ProviderResult {
         let creds = try loadCredentials()
-
-        var req = URLRequest(url: usageURL)
-        req.httpMethod = "GET"
-        req.timeoutInterval = 20
-        req.setValue("Bearer \(creds.accessToken)", forHTTPHeaderField: "Authorization")
-        req.setValue("application/json", forHTTPHeaderField: "Accept")
-        req.setValue("codex-cli", forHTTPHeaderField: "User-Agent")
-        if let account = creds.accountID {
-            req.setValue(account, forHTTPHeaderField: "ChatGPT-Account-Id")
-        }
-
-        let (data, response) = try await URLSession.shared.data(for: req)
-        guard let http = response as? HTTPURLResponse else {
-            throw UsageError.other("サーバーからの応答が不正です")
-        }
+        let (http, data) = try await request(creds)
         switch http.statusCode {
         case 200:
             break
@@ -60,8 +46,43 @@ enum CodexProvider {
         if windows.isEmpty {
             throw UsageError.parse("使用量データが含まれていません")
         }
-        let plan = JSON.string(json["plan_type"])?.capitalized
+        let plan = JSON.string(json["plan_type"]).map(planLabel)
         return ProviderResult(windows: windows, plan: plan, note: nil)
+    }
+
+    /// Maps ChatGPT `plan_type` identifiers to display names.
+    static func planLabel(_ raw: String) -> String {
+        switch raw.lowercased() {
+        case "free": return "Free"
+        case "go": return "Go"
+        case "plus": return "Plus"
+        case "pro": return "Pro"
+        case "prolite", "pro_lite", "pro-lite": return "Pro Lite"
+        case "team": return "Team"
+        case "business": return "Business"
+        case "enterprise": return "Enterprise"
+        case "edu": return "Edu"
+        default: return raw.replacingOccurrences(of: "_", with: " ").capitalized
+        }
+    }
+
+    /// Raw HTTP round trip (shared by `fetchFromAPI` and the `--dump` diagnostics).
+    static func request(_ creds: Credentials) async throws -> (HTTPURLResponse, Data) {
+        var req = URLRequest(url: usageURL)
+        req.httpMethod = "GET"
+        req.timeoutInterval = 20
+        req.setValue("Bearer \(creds.accessToken)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        req.setValue("codex-cli", forHTTPHeaderField: "User-Agent")
+        if let account = creds.accountID {
+            req.setValue(account, forHTTPHeaderField: "ChatGPT-Account-Id")
+        }
+
+        let (data, response) = try await URLSession.shared.data(for: req)
+        guard let http = response as? HTTPURLResponse else {
+            throw UsageError.other("サーバーからの応答が不正です")
+        }
+        return (http, data)
     }
 
     // MARK: Parsing
