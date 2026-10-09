@@ -38,6 +38,20 @@ macOS のデスクトップ上に **半透明の小さなガジェット** と�
 - 動作確認環境: macOS 26/27、Apple Silicon、Claude Code 2.1.x、Codex CLI 0.159。他の環境での動作は未確認です。
 - ライセンス: MIT。自己責任でご利用ください。
 
+## Claude Code に任せてインストールする
+
+Claude Code を使っている方は、次をそのまま貼り付ければクローンからインストールまで任せられます。
+
+```
+https://github.com/onihachi/floating_LLM_usage をクローンして、README の手順どおり
+./build.sh install でビルドし、~/Applications/LLMUsageFloat.app を起動して。
+Xcode Command Line Tools が無ければ先に入れて。途中で macOS のダイアログ
+（CLT のインストール、キーチェーンの「常に許可」）が出たら、私が押すので教えて。
+```
+
+人が押す必要があるのは、Command Line Tools のインストール確認と、キーチェーンの「常に許可」の 2 つだけです。
+Claude Code CLI 自体のログイン（`claude auth login`）が済んでいることも確認してください。
+
 ## 動作要件
 
 - macOS 13 Ventura 以降
