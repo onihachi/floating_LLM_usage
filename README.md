@@ -34,7 +34,7 @@ macOS のデスクトップ上に **半透明の小さなガジェット** と�
 - アプリは Claude Code / Codex CLI がローカルに保存している **OAuth トークンを読み取ります**（macOS キーチェーンと
   `~/.claude` / `~/.codex` 配下）。トークンは上記の公式ドメインへの使用量取得にのみ使い、それ以外には送信・保存しません。
   コードは `Sources/LLMUsageFloat/ClaudeProvider.swift` と `CodexProvider.swift` で確認できます。
-- トークンのリフレッシュは行いません。期限切れ表示が出たら `claude` / `codex` を一度起動してください。
+- アプリ自身はトークンを書き換えません。Claude のトークンが期限切れのときは裏で `claude auth status` を実行し、CLI 自身に更新させてから読み直します（10 分に 1 回まで）。Codex は期限切れ表示が出たら `codex` を一度起動してください。
 - 動作確認環境: macOS 26/27、Apple Silicon、Claude Code 2.1.x、Codex CLI 0.159。他の環境での動作は未確認です。
 - ライセンス: MIT。自己責任でご利用ください。
 
@@ -107,7 +107,7 @@ Claude Code CLI 自体のログイン（`claude auth login`）が済んでいる
 - 5 時間 / 7 日間などの枠は、レスポンスの `limit_window_seconds` から判定します（モデル別の追加制限 `additional_rate_limits` も表示）。Claude 側で未知のキー（内部コードネーム）の枠が返ってきても表示しません。
 - どちらも公式ドキュメント化されていないエンドポイントのため、仕様変更で表示できなくなる可能性があります。その場合はウィンドウ内にエラー理由を表示し、前回取得した値は保持します。
 - Claude の usage エンドポイントはレート制限が厳しめなので、既定の更新間隔は 5 分です。
-- トークンのリフレッシュは行いません（CLI 側の認証状態を壊さないため）。期限切れ表示が出たら、`claude` または `codex` を一度起動すると CLI がトークンを更新します。
+- アプリ自身はトークンをリフレッシュしません（CLI 側の認証状態を壊さないため）。Claude の期限切れを検出したときは `claude auth status` を自動実行して CLI に更新させます（`~/.local/bin` / Homebrew / PATH から `claude` を探します）。Codex は期限切れ表示が出たら `codex` を一度起動してください。
 
 ## 常駐時の負荷
 

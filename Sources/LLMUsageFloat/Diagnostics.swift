@@ -8,6 +8,7 @@ enum Diagnostics {
     static func run() async {
         print("== Claude Code ==")
         print("config dir: \(ClaudeProvider.configDirectory())")
+        print("claude CLI: \(ClaudeProvider.CLIRefresh.claudeExecutable() ?? "not found")")
         for service in ClaudeProvider.keychainServiceNames() {
             var status: OSStatus = errSecSuccess
             let kc = ClaudeProvider.readKeychain(service: service, status: &status)

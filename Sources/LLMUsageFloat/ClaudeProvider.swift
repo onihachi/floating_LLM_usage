@@ -31,19 +31,28 @@ enum ClaudeProvider {
             if !force, let pending = pendingLookupError() {
                 throw pending
             }
+            var loaded: Credentials
             do {
-                creds = try loadCredentials()
+                loaded = try loadCredentials()
             } catch {
                 recordLookupFailure(error)
                 throw error
             }
-            if let exp = creds.expiresAt, exp < Date() {
-                // Stale token: treat like a failed lookup so the Keychain is not
-                // re-read on every tick until Claude Code refreshes it.
-                let error = UsageError.noCredentials("トークンの期限切れ。Claude Code を一度起動すると更新されます")
-                recordLookupFailure(error)
-                throw error
+            if let exp = loaded.expiresAt, exp < Date() {
+                // Stale token: ask the Claude Code CLI to refresh it (it rewrites
+                // the Keychain itself), then read again.
+                if await CLIRefresh.run(), let fresh = try? loadCredentials(),
+                   fresh.expiresAt.map({ $0 > Date() }) ?? true {
+                    loaded = fresh
+                } else {
+                    // Still stale: treat like a failed lookup so the Keychain is
+                    // not re-read on every tick.
+                    let error = UsageError.noCredentials("トークンの期限切れ。ターミナルで claude auth status を実行すると更新されます")
+                    recordLookupFailure(error)
+                    throw error
+                }
             }
+            creds = loaded
             storeCachedCredentials(creds)
         }
 
@@ -85,6 +94,63 @@ enum ClaudeProvider {
             throw UsageError.other("サーバーからの応答が不正です")
         }
         return (http, data)
+    }
+
+    // MARK: Token refresh via the CLI
+
+    /// Runs `claude auth status`, which makes the Claude Code CLI refresh an
+    /// expired OAuth token and write it back to the Keychain. The app never
+    /// refreshes tokens itself, so the CLI's login state stays authoritative.
+    enum CLIRefresh {
+        static let minimumInterval: TimeInterval = 10 * 60
+        nonisolated(unsafe) private static var lastAttempt: Date = .distantPast
+        private static let lock = NSLock()
+
+        /// Candidate locations when the app is launched from Finder (no shell PATH).
+        static func claudeExecutable() -> String? {
+            let home = NSHomeDirectory()
+            var candidates = [
+                home + "/.local/bin/claude",
+                "/opt/homebrew/bin/claude",
+                "/usr/local/bin/claude",
+                home + "/.npm-global/bin/claude",
+            ]
+            if let path = ProcessInfo.processInfo.environment["PATH"] {
+                candidates += path.split(separator: ":").map { String($0) + "/claude" }
+            }
+            return candidates.first { FileManager.default.isExecutableFile(atPath: $0) }
+        }
+
+        /// Returns true when the CLI ran and exited successfully.
+        static func run(force: Bool = false) async -> Bool {
+            let allowed: Bool = lock.withLock {
+                if !force && Date().timeIntervalSince(lastAttempt) < minimumInterval { return false }
+                lastAttempt = Date()
+                return true
+            }
+            guard allowed, let exe = claudeExecutable() else { return false }
+            return await withCheckedContinuation { cont in
+                let proc = Process()
+                proc.executableURL = URL(fileURLWithPath: exe)
+                proc.arguments = ["auth", "status"]
+                proc.standardOutput = FileHandle.nullDevice
+                proc.standardError = FileHandle.nullDevice
+                var env = ProcessInfo.processInfo.environment
+                env["PATH"] = (env["PATH"] ?? "") + ":/opt/homebrew/bin:/usr/local/bin:" + NSHomeDirectory() + "/.local/bin"
+                proc.environment = env
+                proc.terminationHandler = { p in cont.resume(returning: p.terminationStatus == 0) }
+                do {
+                    try proc.run()
+                } catch {
+                    cont.resume(returning: false)
+                    return
+                }
+                // Safety net: never hang a refresh on a stuck CLI.
+                DispatchQueue.global().asyncAfter(deadline: .now() + 30) {
+                    if proc.isRunning { proc.terminate() }
+                }
+            }
+        }
     }
 
     // MARK: Credential cache
