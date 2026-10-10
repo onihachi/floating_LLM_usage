@@ -6,6 +6,8 @@ import Security
 /// Tokens and credential contents are never printed.
 enum Diagnostics {
     static func run() async {
+        let info = Bundle.main.infoDictionary ?? [:]
+        print("LLMUsageFloat \(info["CFBundleShortVersionString"] ?? "?") (\(info["CFBundleVersion"] ?? "?"))")
         print("== Claude Code ==")
         print("config dir: \(ClaudeProvider.configDirectory())")
         print("claude CLI: \(ClaudeProvider.CLIRefresh.claudeExecutable() ?? "not found")")
